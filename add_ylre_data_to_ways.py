@@ -10,35 +10,34 @@ from collections import OrderedDict
 # first input must be a collection of linestrings
 talvi = fiona.open("talvi2016-2017.lines.geojson")
 # second input must be a collection of polygons
-ylre = fiona.open("ylre.shp")
-# second input must be a collection of polygons (should? be cleaned with e.g. Grass in the ylre case)
-# to be used preferentially
-#ylre_pyora = fiona.open("ylre_pyoravaylat.shp")
-# third input must be a collection of polygons used as fallback if no match is found in the above network
+ylre = fiona.open("ylre_katu_ja_liikenne.shp")
 
 # fields to import from linestrings
 import_linestring_fields = {'id': 'original_line_id'}
-# fields to import from polygons
+# fields to import from polygons (may contain duplicates, for fields with multiple source fields)
 import_polygon_fields = {'osan_id': 'ylre_id',
                     'paatyyppi': 'type',
                     'paatyyppi_': 'type_id',
                     'alatyyppi': 'subtype',
                     'alatyyppi_': 'subtype_id',
                     'materiaali': 'material',
-                    'materiaali_': 'material_id',
+                    'materiaa_1': 'material_id',
                     'rakenteell': 'maintainer',
                     'talvikunno': 'winter_maintainer',
                     'tkp_kiiree': 'winter_maintenance_class',
                     'yllapidon_': 'maintenance_class',
                     'yllapido_1': 'maintenance_reason',
+                    'yllapitolu': 'maintenance_class',
+                    'yllapitolk': 'maintenance_reason',
                     'aluetieto': 'area_type',
                     'alueen_nim': 'area_name',
+                    'kadun_nimi': 'area_name',
                     'paivitetty': 'last_modified_time'}
 # polygons to import from preferentially
 preferred_polygon_filter = {'subtype_id': [6, 8, 9, 11]}  # bike lane, combined bike&pedestrian lane
 # polygons to ignore completely
-ignored_polygon_filter = {'subtype_id': [7],  # pedestrian zone
-                         'type_id': [23, 24]}  # lawns and plantations
+ignored_polygon_filter = {'subtype_id': [7, 10],  # pedestrian zone, sidewalk
+                         'type_id': [23, 24, 25, 26, 28, 29]}  # lawns, plantations, trees, forests, separators, walls
 
 # linestring fields will override polygon fields
 import_fields_as = import_polygon_fields.copy()
@@ -77,17 +76,17 @@ buffer_save = fiona.open("buffers.json",
                       crs=talvi.crs,
                       schema={'properties': OrderedDict([('id', 'str')]), 'geometry': 'Polygon'})
 
-
-#ylre_pyora_list = list(ylre_pyora)
-#polygons = [shape(polygon['geometry']) for polygon in ylre_pyora_list]
-#polygon_metadata = [{import_fields_as[key]: value for key, value in polygon['properties'].items()
-#                     if key in import_fields_as}
-#                    for polygon in ylre_pyora_list]
 ylre_list = list(ylre)
 polygons = [shape(polygon['geometry']) for polygon in ylre_list]
+# do not overwrite existing values with empty values
 polygon_metadata = [{import_fields_as[key]: value for key, value in polygon['properties'].items()
-                     if key in import_fields_as}
+                     if key in import_fields_as and value}
                     for polygon in ylre_list]
+# fill in the metadata to fit Fiona schema if values were empty
+for item in polygon_metadata:
+    for field in import_polygon_fields.values():
+        if field not in item:
+            item[field] = None
 
 print("Found area data")
 
@@ -98,11 +97,16 @@ for polygon_index, polygon in enumerate(polygons):
 print("Generated area index")
 
 routes = [shape(linestring['geometry']) for linestring in talvi]
-route_metadata = [{import_fields_as[key]: value for key, value in route['properties'].items()
-                        if key in import_fields_as}
-                  for route in talvi]
-
 remaining_routes = [[] for route in routes]
+# do not overwrite existing values with empty values
+route_metadata = [{import_fields_as[key]: value for key, value in route['properties'].items()
+                   if key in import_fields_as and value}
+                  for route in talvi]
+# fill in the metadata to fit Fiona schema if values were empty
+for item in route_metadata:
+    for field in import_linestring_fields.values():
+        if field not in item:
+            item[field] = None
 
 
 def add_to_remaining_routes(route_index, geometry):
@@ -135,7 +139,7 @@ def add_to_new_linestrings(geometry, metadata):
             for item in geometry:
                 add_to_new_linestrings(item, metadata)
 
-print("Found linestring data")
+print("Found route data")
 
 
 # 1) cut according to all boundaries crossed, direct match to any preferred polygons
