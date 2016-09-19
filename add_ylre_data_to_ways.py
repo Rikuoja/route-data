@@ -231,8 +231,11 @@ for route_index, route_buffered in enumerate(line_end_buffers):
             try:
                 buffer_polygon_intersection = ends_buffered.intersection(polygon)
                 if not buffer_polygon_intersection.is_empty:
+                    # for shorter pieces, the ends do not form a multipolygon so do not match them here
+                    if not isinstance(ends_buffered, MultiPolygon):
+                        continue
                     # do not add the intersection if the buffers are over 8 m apart and the polygon doesn't touch both
-                    if isinstance(ends_buffered, MultiPolygon) and not isinstance(buffer_polygon_intersection, MultiPolygon):
+                    elif not isinstance(buffer_polygon_intersection, MultiPolygon):
                         continue
                     # print('Multipolygon ' + str(buffer_polygon_intersection) + ' found, matching line ' + str(line_index) + ' to polygon ' + str(polygon_index))
                     nearby_bike_lanes.append(buffer_polygon_intersection)
