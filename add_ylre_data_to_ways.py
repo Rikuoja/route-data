@@ -34,10 +34,11 @@ import_polygon_fields = {'osan_id': 'ylre_id',
                     'kadun_nimi': 'area_name',
                     'paivitetty': 'last_modified_time'}
 # polygons to import from preferentially
-preferred_polygon_filter = {'subtype_id': [6, 8, 9, 11]}  # bike lane, combined bike&pedestrian lane
+preferred_polygon_filter = {'subtype_id': [6, 8, 9, 11, 471]}  # bike lane, combined bike&pedestrian lane/bridge
 # polygons to ignore completely
-ignored_polygon_filter = {'subtype_id': [7, 10],  # pedestrian zone, sidewalk
-                         'type_id': [23, 24, 25, 26, 28, 29]}  # lawns, plantations, trees, forests, separators, walls
+ignored_polygon_filter = {'subtype_id': [6, 7, 10, 4],  # cubic stone, pedestrian zone, sidewalk, parking
+                          'type_id': [23, 24, 25, 26, 27, 28, 29]}  # lawns, plantations, trees, forests,
+                                                                # items, separators, walls
 
 # linestring fields will override polygon fields
 import_fields_as = import_polygon_fields.copy()
