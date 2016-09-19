@@ -273,15 +273,17 @@ for route_index, route_buffered in enumerate(buffers):
             # check if the polygon is ignored
             for key, ignored_values in ignored_polygon_filter.items():
                 if metadata[key] in ignored_values:
-                    continue
-            try:
-                buffer_polygon_intersection = buffer.intersection(polygon)
-                if not buffer_polygon_intersection.is_empty:
-                    nearby_polygons.append(buffer_polygon_intersection)
-                    nearby_polygon_indices.append(candidate_indices[polygon_index])
-                    # print('Found intersection between ' + str(buffer) + ' and ' + str(polygon))
-            except TopologicalError:
-                print('Ignoring invalid polygon')
+                    break
+            else:
+                # we like the polygon too much to ignore it
+                try:
+                    buffer_polygon_intersection = buffer.intersection(polygon)
+                    if not buffer_polygon_intersection.is_empty:
+                        nearby_polygons.append(buffer_polygon_intersection)
+                        nearby_polygon_indices.append(candidate_indices[polygon_index])
+                        # print('Found intersection between ' + str(buffer) + ' and ' + str(polygon))
+                except TopologicalError:
+                    print('Ignoring invalid polygon')
         # quick and dirty approximation:
         # pick the one with the most overlap, do not cut the line further
         if nearby_polygons:
