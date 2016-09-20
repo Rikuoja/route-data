@@ -14,7 +14,9 @@ talvi = fiona.open("talvi2016-2017.lines.geojson")
 ylre = fiona.open("ylre_katu_ja_liikenne.shp")
 
 # fields to import from linestrings
-import_linestring_fields = {'id': 'original_line_id'}
+import_linestring_fields = {'id': 'original_line_id',
+                            'tags': 'osm_way_tags',
+                            'tstamp': 'osm_tstamp'}
 # fields to import from polygons (may contain duplicates, for fields with multiple source fields)
 import_polygon_fields = {'osan_id': 'ylre_id',
                     'paatyyppi': 'type',
@@ -34,6 +36,12 @@ import_polygon_fields = {'osan_id': 'ylre_id',
                     'alueen_nim': 'area_name',
                     'kadun_nimi': 'area_name',
                     'paivitetty': 'last_modified_time'}
+# metadata fields to reformat on import
+reformat_fields = {'winter_maintenance_class': lambda value: 'winter_maintenance_project',
+                   'winter_maintainer': lambda value: 'Rakennusvirasto Talvipyöräilyprojekti',
+                   'original_line_id': lambda value: 'winter:' + str(value)}
+# metadata fields to add on import
+add_fields = {'id': lambda metadata: str(metadata.get('original_line_id')) + ':ylre:' + str(metadata.get('ylre_id'))}
 # polygons to import from preferentially
 preferred_polygon_filter = {'subtype_id': [6, 8, 9, 11, 471]}  # bike lane, combined bike&pedestrian lane/bridge
 # polygons to ignore completely
@@ -50,12 +58,29 @@ combined_properties = ylre.schema['properties'].copy()
 combined_properties.update(talvi.schema['properties'])
 import_fields_schema = {'geometry': talvi.schema['geometry'],
                         'properties': OrderedDict(
-    [(import_fields_as[key], value) for key, value in combined_properties.items() if key in import_fields_as]
+    [(value, combined_properties.get(key)) for key, value in import_fields_as.items()]
 )}
+# reformatted and added fields schema have to be added by hand using fiona.FIELD_TYPES_MAP
+fiona_field_for_python_type = {value: key for key, value in fiona.FIELD_TYPES_MAP.items()}
+reformatted_and_added_fields = reformat_fields.copy()
+reformatted_and_added_fields.update(add_fields)
+for field, function in reformatted_and_added_fields.items():
+    try:
+        import_fields_schema['properties'][field] = fiona_field_for_python_type[type(function({}))]
+    except KeyError:
+        raise TypeError("You are trying to create a new metadata field whose type does not correspond to any known Fiona field, "
+                        "or the field creation function returned KeyError when facing incomplete metadata.")
+# finally, use default 'str' schema for any metadata fields missing from input:
+for field, schema in import_fields_schema['properties'].items():
+    if not schema:
+        import_fields_schema['properties'][field] = fiona_field_for_python_type[type('string')]
 
-os.rename('saved_routes.json', 'saved_routes.json.old')
-os.rename('end_buffers.json', 'end_buffers.json.old')
-os.rename('buffers.json', 'buffers.json.old')
+try:
+    os.rename('saved_routes.json', 'saved_routes.json.old')
+    os.rename('end_buffers.json', 'end_buffers.json.old')
+    os.rename('buffers.json', 'buffers.json.old')
+except FileNotFoundError:
+    pass
 
 # the final result
 output2 = fiona.open("saved_routes.json",
@@ -131,6 +156,12 @@ new_linestrings_metadata = []
 
 def add_to_new_linestrings(geometry, metadata):
     if isinstance(geometry, LineString):
+        # first, reformat metadata when a linestring is recognized
+        for field, function in reformat_fields.items():
+            metadata[field] = function(metadata[field])
+        # then, add any additional metadata
+        for field, function in add_fields.items():
+            metadata[field] = function(metadata)
         new_linestrings.append(geometry)
         new_linestrings_metadata.append(metadata)
     elif isinstance(geometry, Point):
