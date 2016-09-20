@@ -89,6 +89,7 @@ for item in polygon_metadata:
     for field in import_polygon_fields.values():
         if field not in item:
             item[field] = None
+empty_polygon_metadata = {import_fields_as[key]: None for key in import_fields_as}
 
 print("Found area data")
 
@@ -174,36 +175,21 @@ routes = list(remaining_routes)
 remaining_routes = [[] for route in routes]
 
 
-# # 2) cut according to any ylre boundaries crossed, to get more granular match for further processing
-# for route_index, route in enumerate(routes):
-#     for line_index, linestring in enumerate(route):
-#         candidate_indices = list(complete_index.intersection(linestring.bounds))
-#         # first, split those parts of linestring that are within an area
-#         for polygon, metadata in [(all_polygons[x], all_polygon_metadata[x]) for x in candidate_indices]:
-#             try:
-#                 route_in_polygon = linestring.intersection(polygon)
-#                 if not route_in_polygon.is_empty:
-#                     add_to_remaining_routes(route_index, route_in_polygon)
-#                     # remove the discovered section from any further matching
-#                     linestring = linestring.difference(polygon)
-#             except TopologicalError:
-#                 print('Ignoring invalid polygon')
-#         # finally, add the parts that didn't belong to a polygon
-#         add_to_remaining_routes(route_index, linestring)
-#
-# print("Cut remaining parts of routes by underlying geometries")
-# routes = list(remaining_routes)
-# remaining_routes = [[] for route in routes]
-
-
 # 2) match nearby bike lanes
 def add_the_polygon_with_most_overlap(route_index, line_index, polygon_indices, overlaps):
     selected_polygon_index = polygon_indices[max(enumerate(map(lambda polygon: polygon.area, overlaps)),
                                                         key=operator.itemgetter(1))[0]]
-    print(polygon_indices)
-    print(selected_polygon_index)
-    print(overlaps)
+    #print(polygon_indices)
+    #print(selected_polygon_index)
+    #print(overlaps)
     metadata = polygon_metadata[selected_polygon_index]
+    # add the linestring metadata to polygon metadata
+    metadata.update(route_metadata[route_index])
+    add_to_new_linestrings(routes[route_index][line_index], metadata)
+
+
+def add_unmatched_line(route_index, line_index):
+    metadata = empty_polygon_metadata
     # add the linestring metadata to polygon metadata
     metadata.update(route_metadata[route_index])
     add_to_new_linestrings(routes[route_index][line_index], metadata)
@@ -246,7 +232,7 @@ for route_index, route_buffered in enumerate(line_end_buffers):
                 print('Ignoring invalid polygon')
         # pick the lane with the most overlap
         if nearby_bike_lanes:
-            print(nearby_bike_lane_indices)
+            # print(nearby_bike_lane_indices)
             add_the_polygon_with_most_overlap(route_index, line_index, nearby_bike_lane_indices, nearby_bike_lanes)
         else:
             # if no lane was found straddling both ends, route will be added to remaining routes
