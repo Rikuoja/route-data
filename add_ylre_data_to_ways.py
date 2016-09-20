@@ -5,6 +5,7 @@ import rtree
 import os
 from shapely.geometry import shape, mapping, LineString, MultiPolygon, Point
 from shapely.geos import TopologicalError
+from shapely.ops import linemerge
 from collections import OrderedDict
 
 # first input must be a collection of linestrings
@@ -289,25 +290,37 @@ for route_index, route_buffered in enumerate(buffers):
         # pick the one with the most overlap, do not cut the line further
         if nearby_polygons:
             add_the_polygon_with_most_overlap(route_index, line_index, nearby_polygon_indices, nearby_polygons)
-    # if the linestring squarely falls in the midst of ignored polygons, it might show up as a gap in the results.
+        else:
+            # if the linestring squarely falls in the midst of ignored polygons, it might show up as a gap
+            add_unmatched_line(route_index, line_index)
 
 print("Matched the rest of the routes to any lanes with the most overlap")
 
-# print("Stitching together pieces that belong together")
-# # TODO: look through the whole data and combine any linestrings with identical metadata!
-#
+# 4) look through the whole data and combine any linestrings with identical metadata!
+final_linestrings = []
+final_metadata = []
+for linestring_index, (linestring, metadata) in enumerate(zip(new_linestrings, new_linestrings_metadata)):
+    # only go through the remaining indices, check the linestring isn't deleted yet
+    if linestring:
+        for index_to_compare, (string_to_compare, metadata_to_compare)\
+                in list(enumerate(zip(new_linestrings, new_linestrings_metadata)))[linestring_index+1:]:
+            # check the other string isn't deleted yet
+            if string_to_compare and metadata == metadata_to_compare:
+                if isinstance(linestring, LineString):
+                    linestring = linemerge([linestring, string_to_compare])
+                else:
+                    # we already have a multilinestring
+                    linestring_list = list(linestring)
+                    linestring_list.append(string_to_compare)
+                    linestring = linemerge(linestring_list)
+                # don't consider the string ever again
+                new_linestrings[index_to_compare] = None
+        final_linestrings.append(linestring)
+        final_metadata.append(metadata)
 
-# save the result in json
-#output = fiona.open("leftover_routes.json",
-#                    'w',
-#                    driver=talvi.driver,
-#                    crs=talvi.crs,
-#                    schema=talvi.schema)
-#for item in list(linestring):
-#    output.write({'geometry': mapping(item), 'properties': OrderedDict([('id', 'mock')])})
-#output.close()
+print("Stitched together pieces that belong together")
 
-for item, metadata in zip(new_linestrings, new_linestrings_metadata):
+for item, metadata in zip(final_linestrings, final_metadata):
     output2.write({'geometry': mapping(item), 'properties': metadata})
 output2.close()
 
