@@ -59,27 +59,32 @@ ignored_polygon_filter = {'subtype_id': [6, 7, 10, 4],  # cubic stone, pedestria
 import_fields_as = import_polygon_fields.copy()
 import_fields_as.update(import_linestring_fields)
 
-# create output schema automatically from input schema
-combined_properties = ylre.schema['properties'].copy()
-combined_properties.update(talvi.schema['properties'])
-import_fields_schema = {'geometry': talvi.schema['geometry'],
-                        'properties': OrderedDict(
-    [(value, combined_properties.get(key)) for key, value in import_fields_as.items()]
-)}
-# reformatted and added fields schema have to be added by hand using fiona.FIELD_TYPES_MAP
-fiona_field_for_python_type = {value: key for key, value in fiona.FIELD_TYPES_MAP.items()}
-reformatted_and_added_fields = reformat_fields.copy()
-reformatted_and_added_fields.update(add_fields)
-for field, function in reformatted_and_added_fields.items():
-    try:
-        import_fields_schema['properties'][field] = fiona_field_for_python_type[type(function({}))]
-    except KeyError:
-        raise TypeError("You are trying to create a new metadata field whose type does not correspond to any known Fiona field, "
-                        "or the field creation function returned KeyError when facing incomplete metadata.")
-# finally, use default 'str' schema for any metadata fields missing from input:
-for field, schema in import_fields_schema['properties'].items():
-    if not schema:
-        import_fields_schema['properties'][field] = fiona_field_for_python_type[type('string')]
+
+def get_output_metadata_schema():
+    # create output schema automatically from input schema
+    combined_properties = ylre.schema['properties'].copy()
+    combined_properties.update(ways.schema['properties'])
+    import_fields_schema = {'geometry': ways.schema['geometry'],
+                            'properties': OrderedDict(
+        [(value, combined_properties.get(key)) for key, value in import_fields_as.items()]
+    )}
+    # reformatted and added fields schema have to be added by hand using fiona.FIELD_TYPES_MAP
+    fiona_field_for_python_type = {value: key for key, value in fiona.FIELD_TYPES_MAP.items()}
+    reformatted_and_added_fields = reformat_fields.copy()
+    reformatted_and_added_fields.update(add_fields)
+    for field, function in reformatted_and_added_fields.items():
+        try:
+            import_fields_schema['properties'][field] = fiona_field_for_python_type[type(function({}))]
+        except KeyError:
+            raise TypeError("You are trying to create a new metadata field whose type does not correspond to any known Fiona field, "
+                            "or the field creation function returned KeyError when facing incomplete metadata.")
+    # finally, use default 'str' schema for any metadata fields missing from input:
+    for field, schema in import_fields_schema['properties'].items():
+        if not schema:
+            import_fields_schema['properties'][field] = fiona_field_for_python_type[type('string')]
+    return import_fields_schema
+
+output_schema = get_output_metadata_schema()
 
 try:
     os.rename('saved_routes.json', 'saved_routes.json.old')
