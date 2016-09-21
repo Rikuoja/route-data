@@ -9,14 +9,20 @@ from shapely.ops import linemerge
 from collections import OrderedDict
 
 # first input must be a collection of linestrings
-talvi = fiona.open("talvi2016-2017.lines.geojson")
+ways = fiona.open("talvi2016-2017.lines.geojson")
 # second input must be a collection of polygons
 ylre = fiona.open("ylre_katu_ja_liikenne.shp")
+# third (optional) input should be an additional collection of linestrings to be added to first input
+# if objects with same ids are found, only the metadata is updated
+# if we have new objects, they are added whole
+additional_ways = fiona.open("talvi.osm.geojson")
 
-# fields to import from linestrings
+# fields to import from linestrings (may override polygon fields, if not null or otherwise falsey)
 import_linestring_fields = {'id': 'original_line_id',
                             'tags': 'osm_way_tags',
-                            'tstamp': 'osm_tstamp'}
+                            'tstamp': 'osm_tstamp',
+                            'talviprojekti': 'winter_maintainer',
+                            'tkp_kiiree': 'winter_maintenance_class'}
 # fields to import from polygons (may contain duplicates, for fields with multiple source fields)
 import_polygon_fields = {'osan_id': 'ylre_id',
                     'paatyyppi': 'type',
@@ -85,30 +91,42 @@ except FileNotFoundError:
 # the final result
 output2 = fiona.open("saved_routes.json",
                     'w',
-                    driver=talvi.driver,
-                    crs=talvi.crs,
-                    schema=import_fields_schema)
+                     driver=ways.driver,
+                     crs=ways.crs,
+                     schema=output_schema)
 
 # the ends buffered
 end_buffer_save = fiona.open("end_buffers.json",
                       'w',
-                      driver=talvi.driver,
-                      crs=talvi.crs,
-                      schema={'properties': OrderedDict([('id', 'str')]), 'geometry': 'Polygon'})
+                             driver=ways.driver,
+                             crs=ways.crs,
+                             schema={'properties': OrderedDict([('id', 'str')]), 'geometry': 'Polygon'})
 
 # the unknown areas buffered
 buffer_save = fiona.open("buffers.json",
                       'w',
-                      driver=talvi.driver,
-                      crs=talvi.crs,
-                      schema={'properties': OrderedDict([('id', 'str')]), 'geometry': 'Polygon'})
+                         driver=ways.driver,
+                         crs=ways.crs,
+                         schema={'properties': OrderedDict([('id', 'str')]), 'geometry': 'Polygon'})
+
+
+def get_metadata_from_list(list):
+    # do not overwrite existing values with empty values in case there are duplicate field names
+    return [{import_fields_as[key]: value for key, value in item['properties'].items()
+                     if key in import_fields_as and value}
+                    for item in list]
+
+
+def get_geometry_from_list(list):
+    return [shape(item['geometry']) for item in list]
 
 ylre_list = list(ylre)
-polygons = [shape(polygon['geometry']) for polygon in ylre_list]
-# do not overwrite existing values with empty values
-polygon_metadata = [{import_fields_as[key]: value for key, value in polygon['properties'].items()
-                     if key in import_fields_as and value}
-                    for polygon in ylre_list]
+polygons = get_geometry_from_list(ylre_list)
+
+print("Found area data")
+
+polygon_metadata = get_metadata_from_list(ylre_list)
+
 # fill in the metadata to fit Fiona schema if values were empty
 for item in polygon_metadata:
     for field in import_polygon_fields.values():
@@ -116,7 +134,7 @@ for item in polygon_metadata:
             item[field] = None
 empty_polygon_metadata = {import_fields_as[key]: None for key in import_fields_as}
 
-print("Found area data")
+print("Found area metadata")
 
 # rtree index is required to calculate intersections in reasonable time
 index = rtree.index.Index()
@@ -124,18 +142,37 @@ for polygon_index, polygon in enumerate(polygons):
     index.insert(polygon_index, polygon.bounds)
 print("Generated area index")
 
-routes = [shape(linestring['geometry']) for linestring in talvi]
-remaining_routes = [[] for route in routes]
-# do not overwrite existing values with empty values
-route_metadata = [{import_fields_as[key]: value for key, value in route['properties'].items()
-                   if key in import_fields_as and value}
-                  for route in talvi]
+routes = get_geometry_from_list(ways)
+print("Found route data")
+
+route_metadata = get_metadata_from_list(ways)
+print("Found route metadata")
+
+additional_routes = get_geometry_from_list(additional_ways)
+additional_route_metadata = get_metadata_from_list(additional_ways)
+for additional_route_index, additional_metadata in enumerate(additional_route_metadata):
+    for route_index, metadata in enumerate(route_metadata):
+        if additional_metadata.get('original_line_id') == metadata.get('original_line_id'):
+            # update the metadata for the route
+            metadata.update(additional_metadata)
+            break
+    else:
+        # the route was not found in original routes, we must append it
+        routes.append(additional_routes[additional_route_index])
+        route_metadata.append(additional_route_metadata[additional_route_index])
+
+print("Found additional route data, merged additional data to original route data by id")
+
 # fill in the metadata to fit Fiona schema if values were empty
 for item in route_metadata:
     for field in import_linestring_fields.values():
-        if field not in item:
+        # we don't want existing (or added) empty values to override any data provided by polygon, so check that:
+        if field in item and not item[field]:
+            del item[field]
+        if field not in item and field not in import_polygon_fields.values():
             item[field] = None
 
+# then, onto the matching heuristic:
 
 def add_to_remaining_routes(route_index, geometry):
     if isinstance(geometry, LineString):
@@ -150,6 +187,7 @@ def add_to_remaining_routes(route_index, geometry):
                 add_to_remaining_routes(route_index, item)
 
 
+remaining_routes = [[] for route in routes]
 new_linestrings = []
 new_linestrings_metadata = []
 
@@ -172,9 +210,6 @@ def add_to_new_linestrings(geometry, metadata):
         if not geometry.is_empty:
             for item in geometry:
                 add_to_new_linestrings(item, metadata)
-
-print("Found route data")
-
 
 # 1) cut according to all boundaries crossed, direct match to any preferred polygons
 for route_index, linestring in enumerate(routes):
