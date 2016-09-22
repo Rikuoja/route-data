@@ -178,14 +178,15 @@ for item in route_metadata:
 # then, onto the matching heuristic:
 
 def add_to_remaining_routes(route_index, geometry):
-    if isinstance(geometry, LineString):
-        remaining_routes[route_index].append(geometry)
-    elif isinstance(geometry, Point):
-        # single points need not be considered
-        return
-    else:
-        # we might have a geometrycollection, but must check for empties
-        if not geometry.is_empty:
+    # we must exclude empty and cyclical routes (empty boundaries will crash analysis)
+    if not geometry.is_empty and not geometry.is_ring:
+        if isinstance(geometry, LineString):
+            remaining_routes[route_index].append(geometry)
+        elif isinstance(geometry, Point):
+            # single points need not be considered and would crash analysis anyway
+            return
+        else:
+            # we have a collection
             for item in geometry:
                 add_to_remaining_routes(route_index, item)
 
@@ -196,21 +197,22 @@ new_linestrings_metadata = []
 
 
 def add_to_new_linestrings(geometry, metadata):
-    if isinstance(geometry, LineString):
-        # first, reformat metadata when a linestring is recognized
-        for field, function in reformat_fields.items():
-            metadata[field] = function(metadata[field])
-        # then, add any additional metadata
-        for field, function in add_fields.items():
-            metadata[field] = function(metadata)
-        new_linestrings.append(geometry)
-        new_linestrings_metadata.append(metadata)
-    elif isinstance(geometry, Point):
-        # single points need not be considered
-        return
-    else:
-        # we might have a geometrycollection, but must check for empties
-        if not geometry.is_empty:
+    # we must exclude empty and cyclical routes (empty boundaries will crash analysis)
+    if not geometry.is_empty and not geometry.is_ring:
+        if isinstance(geometry, LineString):
+            # first, reformat metadata when a linestring is recognized
+            for field, function in reformat_fields.items():
+                metadata[field] = function(metadata[field])
+            # then, add any additional metadata
+            for field, function in add_fields.items():
+                metadata[field] = function(metadata)
+            new_linestrings.append(geometry)
+            new_linestrings_metadata.append(metadata)
+        elif isinstance(geometry, Point):
+            # single points need not be considered and would crash analysis anyway
+            return
+        else:
+            # we have a collection
             for item in geometry:
                 add_to_new_linestrings(item, metadata)
 
