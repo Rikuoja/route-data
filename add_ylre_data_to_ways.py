@@ -115,24 +115,23 @@ buffer_save = fiona.open("buffers.json",
                          schema={'properties': OrderedDict([('id', 'str')]), 'geometry': 'Polygon'})
 
 
-def get_metadata_from_list(list):
+def get_geometry_and_metadata_from_list(list):
+    # empty coordinate arrays will crash shapely, we must delete any empty geometries anon
+    list = [item for item in list if item['geometry']['coordinates']]
+    print("Discarded any empty ones")
+    geometry = [shape(item['geometry']) for item in list]
     # do not overwrite existing values with empty values in case there are duplicate field names
-    return [{import_fields_as[key]: value for key, value in item['properties'].items()
+    metadata = [{import_fields_as[key]: value for key, value in item['properties'].items()
                      if key in import_fields_as and value}
                     for item in list]
-
-
-def get_geometry_from_list(list):
-    return [shape(item['geometry']) for item in list]
+    return geometry, metadata
 
 ylre_list = list(ylre)
-polygons = get_geometry_from_list(ylre_list)
+polygons, polygon_metadata = get_geometry_and_metadata_from_list(ylre_list)
 
 print("Found area data")
 
-polygon_metadata = get_metadata_from_list(ylre_list)
-
-# fill in the metadata to fit Fiona schema if values were empty
+# fill in polygon metadata to fit Fiona schema if values were empty
 for item in polygon_metadata:
     for field in import_polygon_fields.values():
         if field not in item:
@@ -147,14 +146,13 @@ for polygon_index, polygon in enumerate(polygons):
     index.insert(polygon_index, polygon.bounds)
 print("Generated area index")
 
-routes = get_geometry_from_list(ways)
+ways_list = list(ways)
+routes, route_metadata = get_geometry_and_metadata_from_list(ways_list)
 print("Found route data")
-
-route_metadata = get_metadata_from_list(ways)
 print("Found route metadata")
 
-additional_routes = get_geometry_from_list(additional_ways)
-additional_route_metadata = get_metadata_from_list(additional_ways)
+additional_ways_list = list(additional_ways)
+additional_routes, additional_route_metadata = get_geometry_and_metadata_from_list(additional_ways_list)
 for additional_route_index, additional_metadata in enumerate(additional_route_metadata):
     for route_index, metadata in enumerate(route_metadata):
         if additional_metadata.get('original_line_id') == metadata.get('original_line_id'):
