@@ -126,7 +126,7 @@ pieces_save = fiona.open("pieces.json",
                       'w',
                              driver=ways.driver,
                              crs=ways.crs,
-                             schema={'properties': OrderedDict([('id', 'str')]), 'geometry': 'LineString'})
+                             schema=get_output_metadata_schema())
 
 # the ends buffered
 end_buffer_save = fiona.open("end_buffers.json",
@@ -270,12 +270,6 @@ for route_index, linestring in enumerate(original_routes):
     remaining_routes.append(linestring)
 print("Matched routes to underlying areas")
 
-for item in remaining_routes:
-    pieces_save.write({'geometry': mapping(item['geometry']), 'properties': ({'id': 'remaining'})})
-for item in new_routes:
-    pieces_save.write({'geometry': mapping(item['geometry']), 'properties': ({'id': 'new'})})
-pieces_save.close()
-
 # 2) match nearby bike lanes
 for line in remaining_routes:
     line['end_buffers'] = line['geometry'].boundary.buffer(4.0)
@@ -363,16 +357,19 @@ for line in remaining_routes:
                            'metadata': merge_metadata(line, polygon)})
 print("Matched the rest of the routes to any lanes with the most overlap")
 
+for item in new_routes:
+    pieces_save.write({'geometry': mapping(item['geometry']), 'properties': item['metadata']})
+pieces_save.close()
+
 # 4) look through the whole data and combine any linestrings with identical metadata!
-final_routes = []
+final_routes = RouteList()
 # we must speed up matching by doing it separately on each original route, otherwise we will scale O(n^2)
 for original_route in new_routes.original_routes.values():
     for route_index, route in enumerate(original_route):
         # only go through the remaining indices, check the route isn't deleted yet
         if route:
-            for index_to_compare, route_to_compare in\
-                    enumerate([another_route for another_route in original_route[route_index+1:]]):
-                if route_to_compare and route['metadata'] == route_to_compare['metadata']:
+            for index_to_compare, route_to_compare in enumerate(original_route):
+                if index_to_compare > route_index and route_to_compare and route['metadata'] == route_to_compare['metadata']:
                     if isinstance(route['geometry'], LineString):
                         route['geometry'] = linemerge([route['geometry'], route_to_compare['geometry']])
                     else:
